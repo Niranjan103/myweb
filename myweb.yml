@@ -1,0 +1,67 @@
+---
+- name: Deploy MyWeb application to Tomcat
+  hosts: application
+  become: yes
+
+  vars:
+    war_file: "/tmp/myweb/myweb-1.0.war"
+    tomcat_home: "/root/tomcat10"
+    tomcat_webapps: "/root/tomcat10/webapps"
+
+  tasks:
+
+    - name: Check WAR file on Jenkins controller
+      ansible.builtin.stat:
+        path: "{{ war_file }}"
+      delegate_to: localhost
+      become: no
+      register: war_check
+
+    - name: Fail if WAR file is missing
+      ansible.builtin.fail:
+        msg: "WAR file not found: {{ war_file }}"
+      when: not war_check.stat.exists
+      delegate_to: localhost
+      become: no
+
+    - name: Stop Tomcat
+      ansible.builtin.shell: "{{ tomcat_home }}/bin/shutdown.sh"
+      ignore_errors: yes
+
+    - name: Wait for Tomcat to stop
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Remove old WAR
+      ansible.builtin.file:
+        path: "{{ tomcat_webapps }}/myweb-1.0.war"
+        state: absent
+
+    - name: Remove old exploded application
+      ansible.builtin.file:
+        path: "{{ tomcat_webapps }}/myweb-1.0"
+        state: absent
+
+    - name: Copy new WAR to Tomcat
+      ansible.builtin.copy:
+        src: "{{ war_file }}"
+        dest: "{{ tomcat_webapps }}/myweb-1.0.war"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Start Tomcat
+      ansible.builtin.shell: "{{ tomcat_home }}/bin/startup.sh"
+
+    - name: Wait for Tomcat startup
+      ansible.builtin.pause:
+        seconds: 10
+
+    - name: Check Tomcat process
+      ansible.builtin.shell: "ps -ef | grep '[o]rg.apache.catalina.startup.Bootstrap'"
+      register: tomcat_process
+      changed_when: false
+
+    - name: Display Tomcat status
+      ansible.builtin.debug:
+        var: tomcat_process.stdout
